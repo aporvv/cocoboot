@@ -1,0 +1,13 @@
+/dts-v1/;
+
+/ {
+	model = "Palm Tungsten T5";
+	compatible = "palm,tungsten-t5";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	memory@a0000000 {
+		device_type = "memory";
+		reg = <0xa0000000 0x4000000>;
+	};
+};

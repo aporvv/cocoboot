@@ -1,3 +1,6 @@
+#ifndef _SHARED_H_
+#define _SHARED_H_
+
 #define EndianSwap32(n) (((((unsigned long) n) << 24) & 0xFF000000) | \
                          ((((unsigned long) n) <<  8) & 0x00FF0000) | \
                          ((((unsigned long) n) >>  8) & 0x0000FF00) | \
@@ -45,4 +48,4 @@ typedef struct {
 void push_uint32(ArmStack *stack, UInt32 n);
 UInt32 pop_uint32(ArmStack *stack);
 
-
+#endif /* _SHARED_H_ */

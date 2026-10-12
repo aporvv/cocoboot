@@ -14,7 +14,8 @@ void setup_xscale_cpu(int elf);
 
 /* boot.c */
 UInt32 boot_linux(ArmGlobals *g, void *kernel, UInt32 kernel_size,
-		  void *initrd, UInt32 initrd_size, char *cmdline);
+		  void *initrd, UInt32 initrd_size,
+		  void *dtb, UInt32 dtb_size, char *cmdline);
 
 /* atag.c */
 void setup_atags(UInt32 tag_base, UInt32 ram_base, UInt32 ram_size, const char *cmd_line, 

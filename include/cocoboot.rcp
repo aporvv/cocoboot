@@ -88,9 +88,10 @@ END
 
 
 
-STRING GnuGpl	"Cocoboot {$VERSION}\n"\
+STRING GnuGpl	"Cocoboot {$VERSION} (dtb)\n"\
 		"{$BUILD}"\
-		"PalmOS Linux/OpenBSD loader.\n"\
+		"PalmOS Linux/OpenBSD loader,\n"\
+		"with external DTB support.\n"\
 		"Copyright (C) 2006-{$CYEAR}\n"\
 		"\n"\
 		"www.hackndev.com\n"\

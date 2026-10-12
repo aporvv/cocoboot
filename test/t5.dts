@@ -1,0 +1,29 @@
+/dts-v1/;
+
+/ {
+	model = "Palm Tungsten T5";
+	compatible = "palm,tungsten-t5";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	chosen {
+		bootargs = "ORIGINAL_ARGS";
+	};
+
+	memory@a0000000 {
+		device_type = "memory";
+		reg = <0xa0000000 0x4000000>;
+	};
+
+	soc {
+		compatible = "simple-bus";
+		ranges;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		serial@40100000 {
+			compatible = "marvell,pxa-uart";
+			reg = <0x40100000 0x20>;
+		};
+	};
+};

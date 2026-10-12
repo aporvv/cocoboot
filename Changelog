@@ -1,3 +1,13 @@
+version 0.6.2
+  - External device tree (DTB) support: new "dtb" option in
+    cocoboot.conf loads a .dtb from the SD card, patches
+    /chosen (bootargs, linux,initrd-start/end) and passes the blob
+    to the kernel in r2 instead of the ATAG list.  See doc/DTB.md.
+  - Host unit tests for the FDT patcher (test/run-dtbtest.sh).
+  - Nix flake building the full prc-tools/PilRC toolchain from source.
+  - tools/chunkimages.py ported to python 3.
+  - m68k Makefile no longer hardcodes an SDK library path.
+
 version 0.6.1
   - Properly implemented Marvell WiFi firmware dumper.
 

@@ -59,26 +59,33 @@ static void copy_section(UInt32 *dst, UInt32 *src,
 
 }
 
-static void boot_elf(UInt32 entry)
+static void boot_elf(UInt32 entry, UInt32 dtb)
 {
+	/* Register state on entry (as before, this is the OpenBSD-style
+	 * ELF boot: r0 = entry, r1 = 0x30).  r2 now carries the DTB
+	 * address for DT-aware kernels, so r12 -- which we are already
+	 * using as scratch for the cpsr and which is dead by the time
+	 * we flush the TLB -- doubles as the zero register instead.
+	 * r3 is left alone: it still holds the physical stack pointer. */
 	asm volatile (	"mrs r12, cpsr;"
 			"bic r12, r12, #0x1f;"
 			"orr r12, r12, #0x13;"
 			"msr cpsr_all, r12;"
 			"mov r0, %0;"
 			"mov r1, #0x30;"
-			"mov r2, #0;"
+			"mov r2, %1;"
 			"mcr 15, 0, r1, c1, c0, 0;"
-			"mcr 15, 0, r2, c8, c7, 0;"
+			"mov r12, #0;"
+			"mcr 15, 0, r12, c8, c7, 0;"
 			"mov pc, r0"
-			:: "r"(entry) : "r0","r1","r2");
+			:: "r"(entry), "r"(dtb) : "r0","r1","r2","r12");
 }
 
 /* relocate_elf()
  *
  * Relocate the ELF file in memory ... ToComplete
  * */
-void relocate_elf(UInt32 *img, UInt32 size, UInt32 mach)
+void relocate_elf(UInt32 *img, UInt32 size, UInt32 mach, UInt32 dtb)
 {
 	struct elf32_hdr *ehdr = (struct elf32_hdr *) img;
 	struct elf32_phdr *phdr;
@@ -107,5 +114,5 @@ void relocate_elf(UInt32 *img, UInt32 size, UInt32 mach)
 	*(UInt32 *)0x40f00008 = mach;
 
 	/* Jump to kernel */
-	boot_elf(ehdr->e_entry);
+	boot_elf(ehdr->e_entry, dtb);
 }

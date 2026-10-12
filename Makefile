@@ -1,5 +1,5 @@
 EXECS = m68k/cocoboot.m68k arm/cocoboot.arm
-VERSION="0.6.1"
+VERSION="0.6.2"
 
 # For Treo650 support, until I make it run-time conditional,
 # uncomment this:

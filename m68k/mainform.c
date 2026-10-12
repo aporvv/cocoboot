@@ -17,6 +17,7 @@
 
 UInt32 reg(UInt32 addr);
 int use_initrd;
+int use_dtb;
 int kernel_ok;
 
 /* read a value from the given physical address */
@@ -290,20 +291,23 @@ UInt32 load_parts(int n, char *name, void **image)
 	Err err=0;
 	char loc[32];
 	UInt32 size = 1000;
-	UInt32 ftr_size;
+	UInt32 ftr_size, first_size;
 	Int32 vol, bytes;
 
 	lprintf("Loading %s... ", name);
 	vol = search_image(name, loc, sizeof(loc), &size);
 	if(vol < -1) goto out;
 
-	ftr_size = size;
+	/* allocate a little more than the file size: the ARM side
+	 * copies images word-wise and dtb_prepare() appends slack
+	 * bytes to the DTB copy. */
+	ftr_size = first_size = size + 16;
 	while (ftr_size) {
 		if(!(err=FtrPtrNew (CREATOR_ID, FEATURE_NUM + n, ftr_size, image))) {
 			break;
 		}
 
-		if (ftr_size == size) {
+		if (ftr_size == first_size) {
 			lprintf("alloc error, trying overwrite ram. ");
 		}
 
@@ -359,8 +363,8 @@ char *read_command_line()
 
 void boot_linux()
 {
-	void *kernel=NULL, *initrd=NULL;
-	UInt32 kernel_size=0, initrd_size=0;
+	void *kernel=NULL, *initrd=NULL, *dtb=NULL;
+	UInt32 kernel_size=0, initrd_size=0, dtb_size=0;
 	UInt32 ret;
 	UInt16 usb_port;
 	char *cmdline;
@@ -370,6 +374,15 @@ void boot_linux()
 	if(kernel_size) {
 		if(use_initrd) {
 			initrd_size = load_parts(1, get_option("initrd"), &initrd);
+		}
+
+		if(use_dtb) {
+			dtb_size = load_parts(2, get_option("dtb"), &dtb);
+			if(!dtb_size) {
+				/* no DTB available -> fall back to ATAG boot */
+				lprintf("Warning: booting without DTB (ATAGs).\n");
+				use_dtb = 0;
+			}
 		}
 	
 		if (atoi(get_option("openserial")) != 0) {
@@ -382,6 +395,8 @@ void boot_linux()
 			arm_globals.mach_num = EndianFix32(read_mach_id());
 
 			push_uint32(arm_stack, (UInt32)cmdline);
+			push_uint32(arm_stack, dtb_size);
+			push_uint32(arm_stack, (UInt32)dtb);
 			push_uint32(arm_stack, initrd_size);
 			push_uint32(arm_stack, (UInt32)initrd);
 			push_uint32(arm_stack, kernel_size);
@@ -390,9 +405,14 @@ void boot_linux()
 			ret = call_arm(arm_stack, ARM_boot_linux);
 
 			/* we're back?! Boot must have failed. */
-			lprintf("Returned: %lx\n", ret);
+			if ((ret & 0xffffff00) == 0xfd7b0000)
+				lprintf("DTB error: %lx\n", ret);
+			else
+				lprintf("Returned: %lx\n", ret);
 
 		}
+		if (dtb_size) 
+			FtrPtrFree(CREATOR_ID, FEATURE_NUM + 2);
 		if (initrd_size) 
 			FtrPtrFree(CREATOR_ID, FEATURE_NUM + 1);
 	}
@@ -452,11 +472,16 @@ int check_image(char *name)
 
 	vol = search_image(name, loc, sizeof(loc), &size);
 	if(vol>=-1) {
+		UInt8 *img;
 		FtrPtrNew (CREATOR_ID, FEATURE_NUM + 0, 16, (void *)&image);
 		bytes = load_image(name, 4, (UInt16)vol, image);
+		img = (UInt8 *)image;
 		
-		if (bytes > 0 && image[0] == ELFMAG0 && image[1] == ELFMAG1 &&
-			image[2] == ELFMAG2 && image[3] == ELFMAG3)
+		if (bytes > 0 && img[0] == 0xd0 && img[1] == 0x0d &&
+			img[2] == 0xfe && img[3] == 0xed)
+			lprintf("[%s] %s: %ld bytes [ FDT ]\n", loc, name, size);
+		else if (bytes > 0 && img[0] == ELFMAG0 && img[1] == ELFMAG1 &&
+			img[2] == ELFMAG2 && img[3] == ELFMAG3)
 			lprintf("[%s] %s: %ld bytes [ ELF ]\n", loc, name, size);
 		else if (bytes > 0)
 			lprintf("[%s] %s: %ld bytes [ Linux ]\n", loc, name, size);
@@ -512,6 +537,10 @@ Boolean mainform_event(EventPtr event)
 		
 		kernel_ok = check_image(get_option("kernel"));
 		use_initrd = check_image(get_option("initrd"));
+
+		use_dtb = 0;
+		if (get_option("dtb")[0] && strcmp(get_option("dtb"), "none"))
+			use_dtb = check_image(get_option("dtb"));
 	
 		
 		/* boot immediately if in noprompt mode */

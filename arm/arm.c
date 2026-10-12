@@ -65,12 +65,25 @@ unsigned long arm_entry(const void *emulStateP, char *userData68KP,
 	case ARM_fb_test:
 		ret = fb_test(g);
 		break;
-	case ARM_boot_linux:
+	case ARM_boot_linux: {
+		void *kernel;
+		UInt32 kernel_size, initrd_size, dtb_size;
+		void *initrd, *dtb;
+		char *cmdline;
 
-		ret = boot_linux(g, (void*)pop_uint32(stack), 
-				 pop_uint32(stack), (void*)pop_uint32(stack),
-				 pop_uint32(stack), (char*)pop_uint32(stack));
+		kernel      = (void *)pop_uint32(stack);
+		kernel_size = pop_uint32(stack);
+		initrd      = (void *)pop_uint32(stack);
+		initrd_size = pop_uint32(stack);
+		dtb         = (void *)pop_uint32(stack);
+		dtb_size    = pop_uint32(stack);
+		cmdline     = (char *)pop_uint32(stack);
+
+		ret = boot_linux(g, kernel, kernel_size,
+				 initrd, initrd_size,
+				 dtb, dtb_size, cmdline);
 		break;
+	}
 	case 4:
 		ret = foobar();
 		break;

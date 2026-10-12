@@ -21,6 +21,7 @@
 #include "regs.h"
 #include "cpu.h"
 #include "elf.h"
+#include "dtb.h"
 
 #define MACH_TYPE_T3XSCALE	829
 #define MACH_XSCALE_TREO680	1230
@@ -30,6 +31,61 @@
 
 #define T3_INITRD_OFFSET	0x1500000
 #define T680_INITRD_OFFSET	0x0600000
+
+/* DTB placement: we scan megabyte-aligned slots downwards from the top
+ * of RAM and take the first one that does not collide with
+ *
+ *   - [ram_base, ram_base + DTB_MIN_BASE)	which covers the ATAGs at
+ *      TAG_OFFSET and the decompressed kernel image (which lands at
+ *      ram_base + 0x8000 and is assumed to stay below 16 MB)
+ *   - the loaded (still compressed) kernel image plus the decompressor
+ *      scratch space that sits right after it
+ *   - the place the initrd is copied to
+ *   - the loaded DTB buffer itself (source of the copy)
+ */
+#define DTB_MIN_BASE		(16u << 20)
+#define DTB_SLOT_STEP		(1u << 20)
+#define FDT_ALIGN_MB(x)		(((x) + DTB_SLOT_STEP - 1) & ~(DTB_SLOT_STEP - 1))
+
+/* error codes returned when DTB booting fails (visible in the GUI log) */
+#define DTB_ERR_BASE		0xfd7b0000
+
+static int dtb_overlaps(UInt32 a_start, UInt32 a_size,
+			UInt32 b_start, UInt32 b_size)
+{
+	return (b_size != 0) && (a_start < b_start + b_size) &&
+	       (b_start < a_start + a_size);
+}
+
+/* Must be called with the *virtual* globals pointer (MMU still on). */
+static UInt32 dtb_find_spot(ArmGlobals *g,
+			    UInt32 kernel_phys, UInt32 kernel_size,
+			    UInt32 dtb_phys, UInt32 dtb_size,
+			    UInt32 initrd_phys, UInt32 initrd_size)
+{
+	UInt32 need = FDT_ALIGN_MB(dtb_size + FDT_SLACK);
+	UInt32 top = g->ram_base + g->ram_size;
+	UInt32 pos;
+
+	if (top < g->ram_base + DTB_MIN_BASE + need)
+		return 0;
+
+	for (pos = (top - need) & ~(DTB_SLOT_STEP - 1);
+	     pos >= g->ram_base + DTB_MIN_BASE;
+	     pos -= DTB_SLOT_STEP) {
+		if (dtb_overlaps(pos, need,
+				 kernel_phys - 0x10000, kernel_size + 0x30000))
+			continue;
+		if (dtb_overlaps(pos, need, dtb_phys, dtb_size + 0x1000))
+			continue;
+		if (initrd_size &&
+		    dtb_overlaps(pos, need, initrd_phys - 0x1000,
+				 initrd_size + 0x2000))
+			continue;
+		return pos;
+	}
+	return 0;
+}
 
 
 static void jump_to_kernel(void *kernel_base, UInt32 tag_base, UInt32 mach)
@@ -79,12 +135,16 @@ static void map_lcd(void)
 #endif
 
 UInt32 boot_linux(ArmGlobals *g, void *kernel, UInt32 kernel_size,
-		  void *initrd, UInt32 initrd_size, char *cmdline)
+		  void *initrd, UInt32 initrd_size,
+		  void *dtb, UInt32 dtb_size, char *cmdline)
 {
 	ArmGlobals *pg=NULL;
 	void *vstack=NULL,	*pstack=NULL;
 	void *vphys_jump=NULL,	*pphys_jump=NULL;
 	int elf = 0;
+	int dtb_err;
+	UInt32 initrd_offset;
+	UInt32 dtb_dest = 0;
 
 	if(!kernel || !cmdline) {
 		return 0xc0ffee;
@@ -93,11 +153,17 @@ UInt32 boot_linux(ArmGlobals *g, void *kernel, UInt32 kernel_size,
 	/* Disable memory protection (page table is read-only
 	 * on Treos and Centro) */
 	asm volatile ("mcr p15, 0, %0, c3, c3, 0" : : "r"(0xffffffff) );
-	
-	UInt32 initrd_offset;
 
 	/* We do this before tinkering with hardware, it's safer */
 	elf = test_elf((UInt32 *)kernel);
+
+	/* Validate the device tree while we can still bail out cleanly.
+	 * Once the MMU is off there is no way back to PalmOS. */
+	if (dtb && dtb_size) {
+		dtb_err = dtb_validate(dtb, dtb_size);
+		if (dtb_err)
+			return DTB_ERR_BASE | (-dtb_err);
+	}
 
 	/* since we're going to turn off the MMU, we need to translate
 	 *  all out pointers to physical addresses.
@@ -107,6 +173,8 @@ UInt32 boot_linux(ArmGlobals *g, void *kernel, UInt32 kernel_size,
 
 	if(initrd)
 		initrd = (void *)virt_to_phys(g, (UInt32) initrd);
+	if(dtb)
+		dtb = (void *)virt_to_phys(g, (UInt32) dtb);
 	pg = (void *)virt_to_phys(g, (UInt32) g);
 
 	if(!kernel | !cmdline | !pg) { 
@@ -126,6 +194,30 @@ UInt32 boot_linux(ArmGlobals *g, void *kernel, UInt32 kernel_size,
 	pphys_jump = (void *)virt_to_phys(g, (UInt32) vphys_jump);
 
 	if(!pphys_jump) return 0xbadc01a3; /* running out of creative errors */
+
+	/* Work out where the kernel parameters and the initrd go; the
+	 * DTB (if any) needs to know the initrd location too.
+	 * NOTE: read g (the virtual globals) here, not pg: the MMU is
+	 * still on and pg is a physical address -- dereferencing it at
+	 * this point data-aborts. */
+	if (g->mach_num==MACH_TYPE_T3XSCALE){
+	    initrd_offset=T3_INITRD_OFFSET;
+	} else if (g->mach_num==MACH_XSCALE_TREO680){
+	    initrd_offset=T680_INITRD_OFFSET;
+	} else {
+	    initrd_offset=INITRD_OFFSET;
+	}
+
+	/* Pick a physical home for the device tree before we lock the
+	 * door; dtb_prepare() cannot fail once the blob validated. */
+	if (dtb && dtb_size) {
+		dtb_dest = dtb_find_spot(g, (UInt32)kernel, kernel_size,
+					 (UInt32)dtb, dtb_size,
+					 initrd ? g->ram_base + initrd_offset : 0,
+					 initrd_size);
+		if (!dtb_dest)
+			return DTB_ERR_BASE | 0x0a; /* no safe spot in RAM */
+	}
 
 	/* From here on, if we're interrupted, PalmOS will hang us! 
 	 * Lock the door! What it won't know, won't hurt it.
@@ -171,15 +263,8 @@ UInt32 boot_linux(ArmGlobals *g, void *kernel, UInt32 kernel_size,
 		setup_xscale_cpu(elf);
 	}
 
-	if (pg->mach_num==MACH_TYPE_T3XSCALE){
-	    initrd_offset=T3_INITRD_OFFSET;
-	} else if (pg->mach_num==MACH_XSCALE_TREO680){
-	    initrd_offset=T680_INITRD_OFFSET;
-	} else {
-	    initrd_offset=INITRD_OFFSET;
-	}
-	
-	/* place kernel parameters in memory */
+	/* place kernel parameters in memory (harmless when booting with
+	 * a device tree, and handy for debugging with the USB console) */
 	setup_atags(pg->ram_base + TAG_OFFSET, pg->ram_base, pg->ram_size, cmdline,
 		    pg->ram_base + initrd_offset, initrd_size);
 
@@ -188,12 +273,22 @@ UInt32 boot_linux(ArmGlobals *g, void *kernel, UInt32 kernel_size,
 	    copy_image((void*)(pg->ram_base + initrd_offset), initrd, initrd_size);
 	}
 
+	/* copy the device tree into place and patch /chosen */
+	if (dtb && dtb_dest) {
+	    dtb_prepare((void*)dtb_dest, dtb, dtb_size, cmdline,
+			initrd ? pg->ram_base + initrd_offset : 0,
+			initrd_size);
+	}
+
 	if (elf)
 		/* handle additional stuff necessary to load ELF kernel */
-		relocate_elf(kernel, kernel_size, pg->mach_num);
+		relocate_elf(kernel, kernel_size, pg->mach_num, dtb_dest);
 	else
-		/* bring on the penguin! */
-		jump_to_kernel(kernel, pg->ram_base + TAG_OFFSET, pg->mach_num);
+		/* bring on the penguin!  The kernel tells ATAGs from a
+		 * device tree by the magic word at the r2 address. */
+		jump_to_kernel(kernel,
+			       dtb_dest ? dtb_dest : pg->ram_base + TAG_OFFSET,
+			       pg->mach_num);
 
 	return 0xe4;	/* sadly, this return will never be executed */
 }

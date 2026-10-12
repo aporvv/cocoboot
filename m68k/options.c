@@ -42,6 +42,10 @@ struct option {
 		.value = "/initrd.gz",
 	},
 	{
+		.key = "dtb",
+		.value = "",
+	},
+	{
 		.key = "noprompt",
 		.value = "0",
 	},

@@ -23,6 +23,24 @@ kernel = /zImage-2.6.21
 
 initrd = /initramfs_cpio.gz
 
+## dtb
+# Filename of the device tree blob (.dtb) for DT-based kernels
+# (Linux >= 3.x on most ARM machines, required by modern PXA ports).
+#
+# When this option is set and the file is found, Cocoboot passes the
+# device tree to the kernel in r2 instead of the ATAG list.  The
+# command line above is patched into /chosen/bootargs and, if an
+# initrd is loaded, its address into /chosen/linux,initrd-start/end,
+# so you do not need to bake them into the .dts.
+#
+# Set to "none" (or leave the option out entirely) to boot the old
+# ATAG way.  If the file cannot be found or parsed, Cocoboot reports
+# an error and refuses to boot with a broken DTB.
+#
+# Default: [blank]
+
+dtb = /palm_t5.dtb
+
 ## noprompt
 # When this option is 1, Cocoboot will not prompt for the kernel
 # command-line and will instead boot Linux immediately when it is started.

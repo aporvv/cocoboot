@@ -13,11 +13,33 @@ project, see AUTHORS for details.
 http://www.hackndev.com/
 
 
+Device Trees:
+
+Modern ARM Linux kernels need a device tree. Set "dtb = /your.dtb" in
+cocoboot.conf and Cocoboot will load it from the SD card, patch the
+command line and initrd address into /chosen, and pass it to the
+kernel in r2 instead of the ATAG list. See doc/DTB.md for details.
+
 Compiling:
 
-You will need prc-tools, pilrc and the Palm OS SDK installed. Then simply
-use "make" to build. You might need to adjust the paths in the Makefile
-if your SDK is in a non-standard place.
+You will need a prc-tools cross toolchain, PilRC and the Palm OS 5
+SDK registered with palmdev-prep.  Maintained versions of all three:
+
+  https://github.com/jichu4n/prc-tools-remix  (see its tools/build.sh)
+  https://github.com/jichu4n/palm-os-sdk      (copy to /opt/palmdev,
+                                               then: palmdev-prep -d sdk-5r3)
+  https://github.com/jichu4n/pilrc            (unix/ subdirectory,
+                                               autotools bootstrap)
+
+Then simply use "make" to build cocoboot.prc.  You might need to
+adjust the paths in the Makefile if your SDK is in a non-standard
+place (the m68k Makefile accepts LIBS=... if -lPalmOSGlue is not
+found via the palmdev specs).
+
+A Nix flake is also included; "nix build" compiles the complete
+toolchain (prc-tools-remix, Palm OS SDK, PilRC) and Cocoboot from
+source, and "nix develop" gives a shell with the toolchain on PATH.
+See flake.nix and doc/DTB.md.
 
 USB Console:
 

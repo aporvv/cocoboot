@@ -1,0 +1,7 @@
+*.o
+*.prc
+*.bin
+*.arm
+*.m68k
+include/cocoboot.rcp.tmp
+result
